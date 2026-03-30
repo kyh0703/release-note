@@ -151,13 +151,25 @@ class ReleaseRunner:
                 version_name=summary.next_patch_version,
                 before_version_name=jira_version.name,
             )
+            status = (
+                "created"
+                if result.created
+                else "updated"
+                if result.moved
+                else "skipped"
+            )
+            message = (
+                "Created the next patch version."
+                if result.created
+                else "Ensured the existing next patch version is positioned correctly."
+                if result.moved
+                else "Skipped next patch version because it already exists."
+            )
             self._record_step(
                 summary,
                 "jira.ensure_next_patch",
-                "created" if result.created else "skipped",
-                "Created the next patch version."
-                if result.created
-                else "Skipped next patch version because it already exists.",
+                status,
+                message,
                 {
                     "version_name": result.version_name,
                     "version_id": result.version_id,

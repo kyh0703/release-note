@@ -9,6 +9,8 @@ from .config import SmtpConfig
 from .errors import ConfigError, NotificationError
 from .models import JiraIssue
 
+_SMTP_TIMEOUT_SECONDS = 90
+
 
 @dataclass(frozen=True)
 class OpenIssueNotification:
@@ -201,5 +203,13 @@ class SmtpClient:
     def _connect(self) -> smtplib.SMTP:
         port = self.config.resolve_port()
         if self.config.use_ssl:
-            return self.smtp_ssl_factory(self.config.host, port, timeout=30)
-        return self.smtp_factory(self.config.host, port, timeout=30)
+            return self.smtp_ssl_factory(
+                self.config.host,
+                port,
+                timeout=_SMTP_TIMEOUT_SECONDS,
+            )
+        return self.smtp_factory(
+            self.config.host,
+            port,
+            timeout=_SMTP_TIMEOUT_SECONDS,
+        )

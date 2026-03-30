@@ -98,7 +98,7 @@ class FakeJiraClient:
             "already_exists": self.next_exists,
             "version_name": version_name,
             "move_action": "after" if not self.next_exists else None,
-            "move_reference": "6.3.0-b1h1" if not self.next_exists else None,
+            "move_reference": before_version_name if not self.next_exists else None,
         }
 
     def ensure_version_exists(
@@ -113,8 +113,9 @@ class FakeJiraClient:
             created=not self.next_exists,
             version_name=version_name,
             version_id="11" if not self.next_exists else "12",
-            move_action="after" if not self.next_exists else None,
-            move_reference="6.3.0-b1h1" if not self.next_exists else None,
+            move_action="after",
+            move_reference=before_version_name,
+            moved=self.next_exists,
         )
 
 
@@ -215,10 +216,10 @@ def test_dry_run_keeps_write_calls_disabled() -> None:
     summary = runner.run("6.2.0-b4h19", ExecutionMode.DRY_RUN)
 
     assert "release:10:2026-03-30" not in jira.calls
-    assert "ensure:10001:6.2.1:6.2.0-b4h19" not in jira.calls
+    assert "ensure:10001:6.2.0-b4h20:6.2.0-b4h19" not in jira.calls
     assert all(not call.startswith("store:") for call in confluence.calls)
     assert "issues:6.2.0-b4h19" in jira.calls
-    assert summary.next_patch_version == "6.2.1"
+    assert summary.next_patch_version == "6.2.0-b4h20"
     assert summary.fileserver_url == "http://100.100.103.9:8088/IPRON/6.2/6.2.0b4h19"
     assert summary.steps[2].payload["action"] == "create"
     assert summary.steps[2].payload["source_page_title"] == "IPRON v6.2.0-b4h18"
@@ -229,7 +230,7 @@ def test_dry_run_keeps_write_calls_disabled() -> None:
     assert summary.steps[3].payload["position"] == "below"
     assert summary.steps[3].payload["target_page_title"] == "IPRON v6.2.0-b4h18"
     assert summary.steps[4].payload["move_action"] == "after"
-    assert summary.steps[4].payload["move_reference"] == "6.3.0-b1h1"
+    assert summary.steps[4].payload["move_reference"] == "6.2.0-b4h19"
     assert [step.name for step in summary.steps] == [
         "jira.fetch_release_note",
         "jira.release_current",
@@ -256,7 +257,7 @@ def test_apply_runs_jira_confluence_jira_sequence() -> None:
         "fetch:10",
         "issues:6.2.0-b4h19",
         "release:10:2026-03-30",
-        "ensure:10001:6.2.1:6.2.0-b4h19",
+        "ensure:10001:6.2.0-b4h20:6.2.0-b4h19",
     ]
     assert confluence.calls == [
         "get:IPRON v6.2.0-b4h19",
@@ -269,7 +270,7 @@ def test_apply_runs_jira_confluence_jira_sequence() -> None:
     assert summary.steps[-2].payload["target_page_title"] == "IPRON v6.2.0-b4h18"
     assert summary.steps[-1].status == "created"
     assert summary.steps[-1].payload["move_action"] == "after"
-    assert summary.steps[-1].payload["move_reference"] == "6.3.0-b1h1"
+    assert summary.steps[-1].payload["move_reference"] == "6.2.0-b4h19"
     assert (
         "http://100.100.103.9:8088/IPRON/6.2/6.2.0b4h19"
         in confluence.pages["IPRON v6.2.0-b4h19"].content
@@ -350,6 +351,25 @@ def test_apply_skips_confluence_order_when_move_page_is_unsupported() -> None:
     assert summary.steps[-2].name == "confluence.order_page"
     assert "MovePageCommand" in summary.steps[-2].payload["reason"]
     assert summary.steps[-1].name == "jira.ensure_next_patch"
+
+
+def test_apply_repositions_existing_next_patch_version() -> None:
+    jira = FakeJiraClient(next_exists=True)
+    confluence = FakeConfluenceClient()
+    runner = ReleaseRunner(
+        _config(),
+        jira_client=jira,
+        confluence_client=confluence,
+        today=date(2026, 3, 30),
+    )
+
+    summary = runner.run("6.2.0-b4h19", ExecutionMode.APPLY)
+
+    assert summary.steps[-1].name == "jira.ensure_next_patch"
+    assert summary.steps[-1].status == "updated"
+    assert summary.steps[-1].payload["version_id"] == "12"
+    assert summary.steps[-1].payload["move_action"] == "after"
+    assert summary.steps[-1].payload["move_reference"] == "6.2.0-b4h19"
 
 
 def test_dry_run_plans_open_issue_notifications_without_sending_mail() -> None:

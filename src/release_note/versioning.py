@@ -9,6 +9,7 @@ _VERSION_PATTERN = re.compile(
     r"^(?:v)?(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
     r"(?:-(?P<suffix>[A-Za-z0-9][A-Za-z0-9._-]*))?$"
 )
+_TRAILING_NUMBER_SUFFIX_PATTERN = re.compile(r"^(?P<prefix>.*?)(?P<number>\d+)$")
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,9 @@ class TaggingVersion:
 
     def next_patch_name(self) -> str:
         prefix = "v" if self.has_v_prefix else ""
+        next_suffix = _increment_suffix_number(self.suffix)
+        if next_suffix is not None:
+            return f"{prefix}{self.semantic}-{next_suffix}"
         return f"{prefix}{self.major}.{self.minor}.{self.patch + 1}"
 
     @property
@@ -116,3 +120,14 @@ def _suffix_ordering_key(value: str | None) -> tuple[tuple[int, object], ...]:
             continue
         ordering.append((0, part))
     return tuple(ordering)
+
+
+def _increment_suffix_number(value: str | None) -> str | None:
+    if value is None:
+        return None
+    match = _TRAILING_NUMBER_SUFFIX_PATTERN.fullmatch(value)
+    if match is None:
+        return None
+    current_number = match.group("number")
+    incremented = str(int(current_number) + 1).zfill(len(current_number))
+    return f"{match.group('prefix')}{incremented}"
