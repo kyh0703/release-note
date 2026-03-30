@@ -2,6 +2,7 @@ from datetime import date
 
 from release_note.config import ConfluenceConfig, JiraConfig, RunnerConfig
 from release_note.errors import ApiError
+from release_note.mail import OpenIssueNotification
 from release_note.models import (
     ConfluencePage,
     CreateOrSkipResult,
@@ -14,8 +15,14 @@ from release_note.runner import ReleaseRunner
 
 
 class FakeJiraClient:
-    def __init__(self, *, next_exists: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        next_exists: bool = False,
+        all_issues_closed: bool = False,
+    ) -> None:
         self.next_exists = next_exists
+        self.all_issues_closed = all_issues_closed
         self.calls: list[str] = []
 
     def find_version_by_name(self, version_name: str) -> JiraVersion:
@@ -34,9 +41,45 @@ class FakeJiraClient:
 
     def list_version_issues(self, version_name: str) -> list[JiraIssue]:
         self.calls.append(f"issues:{version_name}")
+        if self.all_issues_closed:
+            return [
+                JiraIssue(
+                    key="IPR-1",
+                    summary="IE package fix",
+                    assignee_name="honggildong",
+                    assignee_display_name="홍길동",
+                    status_category_key="done",
+                ),
+                JiraIssue(
+                    key="IPR-2",
+                    summary="IR package fix",
+                    assignee_name="kims",
+                    assignee_display_name="김철수",
+                    status_category_key="done",
+                ),
+            ]
         return [
-            JiraIssue(key="IPR-1", summary="IE package fix"),
-            JiraIssue(key="IPR-2", summary="IR package fix"),
+            JiraIssue(
+                key="IPR-1",
+                summary="IE package fix",
+                assignee_name="honggildong",
+                assignee_display_name="홍길동",
+                status_category_key="indeterminate",
+            ),
+            JiraIssue(
+                key="IPR-2",
+                summary="IE follow-up",
+                assignee_name="honggildong",
+                assignee_display_name="홍길동",
+                status_category_key="new",
+            ),
+            JiraIssue(
+                key="IPR-3",
+                summary="IR package fix",
+                assignee_name="kims",
+                assignee_display_name="김철수",
+                status_category_key="done",
+            ),
         ]
 
     def release_version(self, version: JiraVersion, release_date: str) -> bool:
@@ -127,7 +170,20 @@ class FakeConfluenceClient:
         self.calls.append(f"move:{source_page_id}:{target_page_id}:{position}")
 
 
-def _config() -> RunnerConfig:
+class FakeSmtpClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[OpenIssueNotification], str]] = []
+
+    def send_notifications(
+        self,
+        notifications: list[OpenIssueNotification],
+        *,
+        fallback_sender: str,
+    ) -> None:
+        self.calls.append((notifications, fallback_sender))
+
+
+def _config(*, notify_open_issues: bool = False) -> RunnerConfig:
     return RunnerConfig(
         jira=JiraConfig(
             base_url="http://jira.example.com",
@@ -142,6 +198,7 @@ def _config() -> RunnerConfig:
         fileserver_url_template="http://100.100.103.9:8088/IPRON/{major}.{minor}/{tag_version}",
         wiki_page_title_template="IPRON v{raw}",
         attachment_strategy="reuse",
+        notify_open_issues=notify_open_issues,
     )
 
 
@@ -293,3 +350,75 @@ def test_apply_skips_confluence_order_when_move_page_is_unsupported() -> None:
     assert summary.steps[-2].name == "confluence.order_page"
     assert "MovePageCommand" in summary.steps[-2].payload["reason"]
     assert summary.steps[-1].name == "jira.ensure_next_patch"
+
+
+def test_dry_run_plans_open_issue_notifications_without_sending_mail() -> None:
+    jira = FakeJiraClient()
+    confluence = FakeConfluenceClient()
+    smtp = FakeSmtpClient()
+    runner = ReleaseRunner(
+        _config(notify_open_issues=True),
+        jira_client=jira,
+        confluence_client=confluence,
+        smtp_client=smtp,
+        today=date(2026, 3, 30),
+    )
+
+    summary = runner.run("6.2.0-b4h19", ExecutionMode.DRY_RUN)
+
+    assert smtp.calls == []
+    assert summary.steps[-1].name == "mail.notify_open_issues"
+    assert summary.steps[-1].status == "planned"
+    assert summary.steps[-1].payload["open_issue_count"] == 2
+    assert summary.steps[-1].payload["recipient_count"] == 1
+    assert summary.steps[-1].payload["notifications"] == [
+        {
+            "recipient": "honggildong@bridgetec.co.kr",
+            "issue_keys": ["IPR-1", "IPR-2"],
+        }
+    ]
+
+
+def test_apply_sends_open_issue_notifications() -> None:
+    jira = FakeJiraClient()
+    confluence = FakeConfluenceClient()
+    smtp = FakeSmtpClient()
+    runner = ReleaseRunner(
+        _config(notify_open_issues=True),
+        jira_client=jira,
+        confluence_client=confluence,
+        smtp_client=smtp,
+        today=date(2026, 3, 30),
+    )
+
+    summary = runner.run("6.2.0-b4h19", ExecutionMode.APPLY)
+
+    assert len(smtp.calls) == 1
+    notifications, fallback_sender = smtp.calls[0]
+    assert fallback_sender == "jira-user"
+    assert [notification.recipient for notification in notifications] == [
+        "honggildong@bridgetec.co.kr"
+    ]
+    assert notifications[0].issue_keys == ["IPR-1", "IPR-2"]
+    assert summary.steps[-1].name == "mail.notify_open_issues"
+    assert summary.steps[-1].status == "sent"
+
+
+def test_apply_skips_open_issue_notifications_when_all_issues_are_closed() -> None:
+    jira = FakeJiraClient(all_issues_closed=True)
+    confluence = FakeConfluenceClient()
+    smtp = FakeSmtpClient()
+    runner = ReleaseRunner(
+        _config(notify_open_issues=True),
+        jira_client=jira,
+        confluence_client=confluence,
+        smtp_client=smtp,
+        today=date(2026, 3, 30),
+    )
+
+    summary = runner.run("6.2.0-b4h19", ExecutionMode.APPLY)
+
+    assert smtp.calls == []
+    assert summary.steps[-1].name == "mail.notify_open_issues"
+    assert summary.steps[-1].status == "skipped"
+    assert summary.steps[-1].payload["open_issue_count"] == 0

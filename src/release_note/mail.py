@@ -31,12 +31,12 @@ def prepare_open_issue_notifications(
     recipient_names: dict[str, str] = {}
 
     for issue in issues:
-        address = issue.assignee_email or issue.assignee_name
-        if not address:
+        username = _resolve_assignee_username(issue)
+        if not username:
             raise ConfigError(
-                f"Jira issue '{issue.key}' does not contain assignee email or username."
+                f"Jira issue '{issue.key}' does not contain assignee username or email."
             )
-        recipient = normalize_email_address(address, default_suffix)
+        recipient = normalize_email_address(username, default_suffix)
         grouped.setdefault(recipient, []).append(issue)
         recipient_names.setdefault(
             recipient,
@@ -127,6 +127,17 @@ def normalize_email_address(value: str, default_suffix: str) -> str:
         return normalized
     suffix = default_suffix if default_suffix.startswith("@") else f"@{default_suffix}"
     return f"{normalized}{suffix}"
+
+
+def _resolve_assignee_username(issue: JiraIssue) -> str:
+    username = issue.assignee_name.strip()
+    if username:
+        return username
+    if issue.assignee_email:
+        email_username = issue.assignee_email.strip().split("@", 1)[0]
+        if email_username:
+            return email_username
+    return ""
 
 
 class SmtpClient:

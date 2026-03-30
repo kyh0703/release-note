@@ -6,6 +6,8 @@ import sys
 
 from .config import (
     DEFAULT_FILESERVER_URL_TEMPLATE,
+    DEFAULT_MAIL_FROM,
+    DEFAULT_SMTP_HOST,
     DEFAULT_WIKI_PAGE_TITLE_TEMPLATE,
     RunnerConfig,
 )
@@ -50,6 +52,51 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WIKI_PAGE_TITLE_TEMPLATE,
         help="Confluence target page title template",
     )
+    run_parser.add_argument(
+        "--notify-open-issues",
+        action="store_true",
+        help="send notification emails for non-closed Jira issues grouped by assignee",
+    )
+    run_parser.add_argument(
+        "--smtp-host",
+        default=DEFAULT_SMTP_HOST,
+        help="SMTP host for open issue notifications",
+    )
+    run_parser.add_argument(
+        "--smtp-port",
+        type=int,
+        help="SMTP port override",
+    )
+    run_parser.add_argument(
+        "--smtp-use-tls",
+        action="store_true",
+        help="enable STARTTLS for SMTP notifications",
+    )
+    run_parser.add_argument(
+        "--smtp-use-ssl",
+        action="store_true",
+        help="use SMTPS for SMTP notifications",
+    )
+    run_parser.add_argument(
+        "--smtp-username",
+        default="",
+        help="SMTP username for open issue notifications",
+    )
+    run_parser.add_argument(
+        "--smtp-password",
+        default="",
+        help="SMTP password for open issue notifications",
+    )
+    run_parser.add_argument(
+        "--mail-from",
+        default=DEFAULT_MAIL_FROM,
+        help="From address for open issue notifications",
+    )
+    run_parser.add_argument(
+        "--mail-reply-to",
+        default="",
+        help="Reply-To address for open issue notifications",
+    )
     mode = run_parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="preview planned changes")
     mode.add_argument("--apply", action="store_true", help="perform write operations")
@@ -66,6 +113,15 @@ def main(argv: list[str] | None = None) -> int:
                 password=args.password,
                 fileserver_url_template=args.fileserver_url_template,
                 wiki_page_title_template=args.wiki_page_title_template,
+                notify_open_issues=args.notify_open_issues,
+                smtp_host=args.smtp_host,
+                smtp_port=args.smtp_port,
+                smtp_use_tls=args.smtp_use_tls,
+                smtp_use_ssl=args.smtp_use_ssl,
+                smtp_username=args.smtp_username,
+                smtp_password=args.smtp_password,
+                mail_from=args.mail_from,
+                mail_reply_to=args.mail_reply_to,
             )
             mode = ExecutionMode.APPLY if args.apply else ExecutionMode.DRY_RUN
             summary = ReleaseRunner(

@@ -81,6 +81,7 @@ class RunnerConfig:
     fileserver_url_template: str = DEFAULT_FILESERVER_URL_TEMPLATE
     wiki_page_title_template: str = DEFAULT_WIKI_PAGE_TITLE_TEMPLATE
     attachment_strategy: str = "reuse"
+    notify_open_issues: bool = False
 
     @classmethod
     def from_cli_options(
@@ -91,6 +92,15 @@ class RunnerConfig:
         fileserver_url_template: str = DEFAULT_FILESERVER_URL_TEMPLATE,
         wiki_page_title_template: str = DEFAULT_WIKI_PAGE_TITLE_TEMPLATE,
         attachment_strategy: str = "reuse",
+        notify_open_issues: bool = False,
+        smtp_host: str = DEFAULT_SMTP_HOST,
+        smtp_port: int | None = None,
+        smtp_use_tls: bool = False,
+        smtp_use_ssl: bool = False,
+        smtp_username: str = "",
+        smtp_password: str = "",
+        mail_from: str = DEFAULT_MAIL_FROM,
+        mail_reply_to: str = "",
     ) -> "RunnerConfig":
         normalized_username = username.strip()
         normalized_password = password.strip()
@@ -107,12 +117,23 @@ class RunnerConfig:
                 password=normalized_password,
                 space_key=DEFAULT_CONFLUENCE_SPACE_KEY,
             ),
-            smtp=SmtpConfig(),
+            smtp=SmtpConfig(
+                host=smtp_host.strip() or DEFAULT_SMTP_HOST,
+                port=smtp_port,
+                use_tls=smtp_use_tls,
+                use_ssl=smtp_use_ssl,
+                username=smtp_username.strip(),
+                password=smtp_password.strip(),
+                from_address=mail_from.strip() or DEFAULT_MAIL_FROM,
+                reply_to=mail_reply_to.strip(),
+                default_suffix=DEFAULT_MAIL_SUFFIX,
+            ),
             fileserver_url_template=fileserver_url_template.strip()
             or DEFAULT_FILESERVER_URL_TEMPLATE,
             wiki_page_title_template=wiki_page_title_template.strip()
             or DEFAULT_WIKI_PAGE_TITLE_TEMPLATE,
             attachment_strategy=attachment_strategy.strip() or "reuse",
+            notify_open_issues=notify_open_issues,
         )
 
     def render_page_title(self, tagging_version: TaggingVersion) -> str:

@@ -104,7 +104,7 @@ class JiraClient:
                 self._url("/jira/rest/api/2/search"),
                 params={
                     "jql": f'project = {self.config.project_key} AND fixVersion = "{version_name}"',
-                    "fields": "summary,description,components",
+                    "fields": "summary,description,components,assignee,status",
                     "startAt": start_at,
                     "maxResults": 100,
                 },
@@ -115,17 +115,31 @@ class JiraClient:
             for item in issue_items:
                 fields = item.get("fields", {})
                 issue_key = str(item["key"])
+                assignee = fields.get("assignee") or {}
+                status = fields.get("status") or {}
+                status_category = status.get("statusCategory") or {}
                 issues.append(
                     JiraIssue(
                         key=issue_key,
                         summary=str(fields.get("summary", "")),
                         description=_stringify_description(fields.get("description")),
+                        assignee_name=str(
+                            assignee.get("name") or assignee.get("key") or ""
+                        ),
+                        assignee_display_name=_optional_string(
+                            assignee.get("displayName")
+                        ),
+                        assignee_email=_optional_string(
+                            assignee.get("emailAddress")
+                        ),
                         browse_url=self._url(f"/jira/browse/{issue_key}"),
                         components=tuple(
                             str(component.get("name", ""))
                             for component in fields.get("components", [])
                             if component.get("name")
                         ),
+                        status_name=str(status.get("name", "")),
+                        status_category_key=str(status_category.get("key", "")),
                     )
                 )
             start_at += len(issue_items)
@@ -344,3 +358,10 @@ def _stringify_description(value: Any) -> str:
                 parts.append(text)
         return "\n".join(parts)
     return str(value)
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
