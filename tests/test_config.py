@@ -36,6 +36,30 @@ def test_smtp_defaults_are_hard_coded() -> None:
     assert config.smtp.host == DEFAULT_SMTP_HOST
     assert config.smtp.from_address == DEFAULT_MAIL_FROM
     assert config.smtp.default_suffix == "@bridgetec.co.kr"
+    assert config.notify_open_issues is False
+
+
+def test_notify_open_issue_cli_options_configure_smtp() -> None:
+    config = RunnerConfig.from_cli_options(
+        notify_open_issues=True,
+        smtp_host="smtp.example.com",
+        smtp_port=2525,
+        smtp_use_tls=True,
+        smtp_username="smtp-user",
+        smtp_password="smtp-pass",
+        mail_from="release@example.com",
+        mail_reply_to="team@example.com",
+    )
+
+    assert config.notify_open_issues is True
+    assert config.smtp.host == "smtp.example.com"
+    assert config.smtp.port == 2525
+    assert config.smtp.use_tls is True
+    assert config.smtp.use_ssl is False
+    assert config.smtp.username == "smtp-user"
+    assert config.smtp.password == "smtp-pass"
+    assert config.smtp.from_address == "release@example.com"
+    assert config.smtp.reply_to == "team@example.com"
 
 
 def test_parse_page_title_version_extracts_raw_version_from_default_template() -> None:

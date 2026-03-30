@@ -69,3 +69,73 @@ def test_cli_common_auth_flags_build_shared_config(monkeypatch, capsys) -> None:
     assert config.confluence.space_key == "PAC"
     assert config.jira.username == "release-user"
     assert config.confluence.username == "release-user"
+
+
+def test_cli_notify_and_smtp_flags_build_notification_config(monkeypatch, capsys) -> None:
+    captured_config: list[object] = []
+
+    class FakeRunner:
+        def __init__(
+            self,
+            config,
+            jira_client=None,
+            confluence_client=None,
+            smtp_client=None,
+            *,
+            today=None,
+            step_reporter=None,
+            run_start_reporter=None,
+        ) -> None:
+            captured_config.append(config)
+            self._run_start_reporter = run_start_reporter
+
+        def run(self, tagging_version: str, execution_mode: ExecutionMode) -> RunSummary:
+            summary = RunSummary(
+                tagging_version=tagging_version,
+                execution_mode=execution_mode,
+                release_date="2026-03-30",
+                target_page_title="IPRON v6.2.0-b4h19",
+                next_patch_version="6.2.1",
+                fileserver_url="http://100.100.103.9:8088/IPRON/6.2/6.2.0b4h19",
+            )
+            if self._run_start_reporter is not None:
+                self._run_start_reporter(summary)
+            return summary
+
+    monkeypatch.setattr(cli_module, "ReleaseRunner", FakeRunner)
+
+    exit_code = cli_module.main(
+        [
+            "run",
+            "--tagging-version",
+            "6.2.0-b4h19",
+            "--dry-run",
+            "--notify-open-issues",
+            "--smtp-host",
+            "smtp.example.com",
+            "--smtp-port",
+            "2525",
+            "--smtp-use-tls",
+            "--smtp-username",
+            "smtp-user",
+            "--smtp-password",
+            "smtp-pass",
+            "--mail-from",
+            "release@example.com",
+            "--mail-reply-to",
+            "team@example.com",
+        ]
+    )
+    capsys.readouterr()
+
+    assert exit_code == 0
+    config = captured_config[0]
+    assert config.notify_open_issues is True
+    assert config.smtp.host == "smtp.example.com"
+    assert config.smtp.port == 2525
+    assert config.smtp.use_tls is True
+    assert config.smtp.use_ssl is False
+    assert config.smtp.username == "smtp-user"
+    assert config.smtp.password == "smtp-pass"
+    assert config.smtp.from_address == "release@example.com"
+    assert config.smtp.reply_to == "team@example.com"

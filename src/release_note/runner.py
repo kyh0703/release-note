@@ -7,6 +7,7 @@ from .config import RunnerConfig
 from .confluence_client import ConfluenceClient
 from .errors import ApiError, ConfigError, NotFoundError
 from .jira_client import JiraClient
+from .mail import SmtpClient, prepare_open_issue_notifications
 from .models import (
     ConfluencePage,
     ExecutionMode,
@@ -25,6 +26,7 @@ class ReleaseRunner:
         config: RunnerConfig,
         jira_client: JiraClient | None = None,
         confluence_client: ConfluenceClient | None = None,
+        smtp_client: SmtpClient | None = None,
         *,
         today: date | None = None,
         step_reporter: Callable[[RunStep], None] | None = None,
@@ -45,6 +47,7 @@ class ReleaseRunner:
                 else None
             )
         )
+        self.smtp_client = smtp_client if smtp_client is not None else SmtpClient(config.smtp)
         self.today = today or date.today()
         self.step_reporter = step_reporter
         self.run_start_reporter = run_start_reporter
@@ -68,6 +71,7 @@ class ReleaseRunner:
         jira_version = None
         release_note = None
         version_issues: list[JiraIssue] = []
+        open_version_issues: list[JiraIssue] = []
         if self.jira_client is None:
             self._record_step(
                 summary,
@@ -80,6 +84,9 @@ class ReleaseRunner:
             jira_version = self.jira_client.find_version_by_name(version.raw)
             release_note = self.jira_client.fetch_release_notes(jira_version)
             version_issues = self.jira_client.list_version_issues(jira_version.name)
+            open_version_issues = [
+                issue for issue in version_issues if not issue.is_closed
+            ]
             self._record_step(
                 summary,
                 "jira.fetch_release_note",
@@ -174,6 +181,14 @@ class ReleaseRunner:
                     "move_action": preview["move_action"],
                     "move_reference": preview["move_reference"],
                 },
+            )
+
+        if self.config.notify_open_issues:
+            self._run_open_issue_notification_phase(
+                summary=summary,
+                execution_mode=execution_mode,
+                version_name=jira_version.name if jira_version is not None else version.raw,
+                open_issues=open_version_issues,
             )
 
         return summary
@@ -392,6 +407,74 @@ class ReleaseRunner:
             "updated",
             "Moved the Confluence page below the previous version page.",
             {**payload, "source_page_id": stored_page.page_id},
+        )
+
+    def _run_open_issue_notification_phase(
+        self,
+        *,
+        summary: RunSummary,
+        execution_mode: ExecutionMode,
+        version_name: str,
+        open_issues: list[JiraIssue],
+    ) -> None:
+        if self.jira_client is None:
+            self._record_step(
+                summary,
+                "mail.notify_open_issues",
+                "requires_config",
+                "Jira access is required to prepare open issue notifications.",
+                {"version_name": version_name},
+            )
+            return
+
+        if not open_issues:
+            self._record_step(
+                summary,
+                "mail.notify_open_issues",
+                "skipped",
+                "Skipped open issue notifications because there are no non-closed issues.",
+                {"version_name": version_name, "open_issue_count": 0},
+            )
+            return
+
+        notifications = prepare_open_issue_notifications(
+            project_key=self.config.jira.project_key,
+            version_name=version_name,
+            issues=open_issues,
+            default_suffix=self.config.smtp.default_suffix,
+        )
+        payload = {
+            "version_name": version_name,
+            "open_issue_count": len(open_issues),
+            "recipient_count": len(notifications),
+            "notifications": [
+                {
+                    "recipient": notification.recipient,
+                    "issue_keys": notification.issue_keys,
+                }
+                for notification in notifications
+            ],
+        }
+        if not execution_mode.is_apply:
+            self._record_step(
+                summary,
+                "mail.notify_open_issues",
+                "planned",
+                "Prepared open issue notification emails for dry-run.",
+                payload,
+            )
+            return
+
+        self.smtp_client.send_notifications(
+            notifications,
+            fallback_sender=self.config.jira.username or self.config.smtp.from_address,
+        )
+        self._record_step(
+            summary,
+            "mail.notify_open_issues",
+            "sent",
+            "Sent open issue notification emails.",
+            payload,
         )
 
     def _record_step(

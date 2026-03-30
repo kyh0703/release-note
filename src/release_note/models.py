@@ -48,6 +48,12 @@ class JiraIssue:
     assignee_email: str | None = None
     browse_url: str = ""
     components: tuple[str, ...] = ()
+    status_name: str = ""
+    status_category_key: str = ""
+
+    @property
+    def is_closed(self) -> bool:
+        return self.status_category_key.strip().lower() == "done"
 
 
 @dataclass(frozen=True)

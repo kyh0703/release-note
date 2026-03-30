@@ -103,6 +103,15 @@ def test_list_version_issues_reads_search_results() -> None:
                             "summary": "IC package fix",
                             "description": "Affects IC module",
                             "components": [{"name": "IC"}],
+                            "assignee": {
+                                "name": "honggildong",
+                                "displayName": "홍길동",
+                                "emailAddress": "honggildong@example.com",
+                            },
+                            "status": {
+                                "name": "In Progress",
+                                "statusCategory": {"key": "indeterminate"},
+                            },
                         },
                     }
                 ],
@@ -124,6 +133,12 @@ def test_list_version_issues_reads_search_results() -> None:
     assert issues[0].summary == "IC package fix"
     assert "IC module" in issues[0].description
     assert issues[0].components == ("IC",)
+    assert issues[0].assignee_name == "honggildong"
+    assert issues[0].assignee_display_name == "홍길동"
+    assert issues[0].assignee_email == "honggildong@example.com"
+    assert issues[0].status_name == "In Progress"
+    assert issues[0].status_category_key == "indeterminate"
+    assert issues[0].is_closed is False
     assert session.calls[0].kwargs["params"]["jql"] == (
         'project = IPR AND fixVersion = "v5.1.1-b3h75"'
     )
