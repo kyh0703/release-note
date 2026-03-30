@@ -7,7 +7,7 @@
 - `AGENTS.md`
 - `docs/STATE.md`
 - `docs/v1/designs/2026-03-30-v1-open-issue-assignee-notify.md`
-- `docs/v1/plans/single-version-release-runner.md`
+- `docs/v1/completed/single-version-release-runner.md`
 
 ## Workspace
 - Branch: `feat/v1-open-issue-assignee-notify`

@@ -15,7 +15,7 @@ created_at: 2026-03-30T13:37:51+09:00
 - Source docs:
   - `AGENTS.md`
   - `docs/STATE.md`
-  - `docs/v1/plans/single-version-release-runner.md`
+  - `docs/v1/completed/single-version-release-runner.md`
 - Existing system facts:
   - `src/release_note/mail.py`에 assignee별 메일 생성과 SMTP 발송 초안이 이미 있다.
   - 현재 `runner.py`와 `cli.py`에는 open issue 메일 발송이 연결되어 있지 않다.
