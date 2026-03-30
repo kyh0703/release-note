@@ -195,6 +195,7 @@ def test_ensure_version_exists_skips_existing_version() -> None:
 
     assert result.created is False
     assert result.version_id == "11"
+    assert result.moved is False
 
 
 def test_ensure_version_exists_moves_new_version_before_current_version() -> None:
@@ -220,7 +221,7 @@ def test_ensure_version_exists_moves_new_version_before_current_version() -> Non
         FakeResponse(
             json_data={
                 "id": "21",
-                "name": "v6.2.1",
+                "name": "v6.2.0-b4h20",
                 "projectId": "10001",
                 "self": "https://qa.example.com/jira/rest/api/2/version/21",
             }
@@ -238,21 +239,21 @@ def test_ensure_version_exists_moves_new_version_before_current_version() -> Non
 
     result = client.ensure_version_exists(
         project_id="10001",
-        version_name="6.2.1",
+        version_name="6.2.0-b4h20",
         before_version_name="v6.2.0-b4h19",
     )
 
     assert result.created is True
     assert result.move_action == "after"
-    assert result.move_reference == "v6.3.0-b1h1"
-    assert session.calls[1].kwargs["json"] == {"name": "v6.2.1", "project": "IPR"}
+    assert result.move_reference == "v6.2.0-b4h19"
+    assert session.calls[1].kwargs["json"] == {"name": "v6.2.0-b4h20", "project": "IPR"}
     assert session.calls[2].url.endswith("/jira/rest/api/2/version/21/move")
     assert session.calls[2].kwargs["json"] == {
-        "after": "https://qa.example.com/jira/rest/api/2/version/20"
+        "after": "https://qa.example.com/jira/rest/api/2/version/10"
     }
 
 
-def test_preview_version_creation_uses_first_when_current_version_is_first() -> None:
+def test_preview_version_creation_moves_after_current_version() -> None:
     session = ScriptedSession(
         FakeResponse(
             json_data=[
@@ -276,13 +277,13 @@ def test_preview_version_creation_uses_first_when_current_version_is_first() -> 
     )
 
     preview = client.preview_version_creation(
-        version_name="6.2.1",
+        version_name="6.2.0-b4h20",
         before_version_name="6.2.0-b4h19",
     )
 
     assert preview["already_exists"] is False
-    assert preview["move_action"] == "position"
-    assert preview["move_reference"] == "First"
+    assert preview["move_action"] == "after"
+    assert preview["move_reference"] == "6.2.0-b4h19"
 
 
 def test_preview_version_creation_uses_leading_v_when_current_version_uses_it() -> None:
@@ -309,9 +310,157 @@ def test_preview_version_creation_uses_leading_v_when_current_version_uses_it() 
     )
 
     preview = client.preview_version_creation(
-        version_name="5.1.2",
+        version_name="5.1.1-b3h76",
         before_version_name="v5.1.1-b3h75",
     )
 
     assert preview["already_exists"] is False
-    assert preview["version_name"] == "v5.1.2"
+    assert preview["version_name"] == "v5.1.1-b3h76"
+
+
+def test_preview_version_creation_keeps_direct_adjacency_with_current_version() -> None:
+    session = ScriptedSession(
+        FakeResponse(
+            json_data=[
+                {
+                    "id": "74",
+                    "name": "v5.1.1-b3h74",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/74",
+                    "released": True,
+                },
+                {
+                    "id": "75",
+                    "name": "v5.1.1-b3h75",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/75",
+                    "released": True,
+                },
+                {
+                    "id": "76",
+                    "name": "v5.1.1-b4",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/76",
+                    "released": False,
+                },
+                {
+                    "id": "77",
+                    "name": "v5.1.2",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/77",
+                    "released": False,
+                },
+            ]
+        )
+    )
+    client = JiraClient(
+        JiraConfig(
+            base_url="https://qa.example.com",
+            username="jira-user",
+            password="jira-pass",
+        ),
+        session=session,
+    )
+
+    preview = client.preview_version_creation(
+        version_name="5.1.1-b3h76",
+        before_version_name="v5.1.1-b3h75",
+    )
+
+    assert preview["already_exists"] is False
+    assert preview["move_action"] == "after"
+    assert preview["move_reference"] == "v5.1.1-b3h75"
+
+
+def test_ensure_version_exists_moves_existing_version_after_current_version() -> None:
+    session = ScriptedSession(
+        FakeResponse(
+            json_data=[
+                {
+                    "id": "74",
+                    "name": "v5.1.1-b3h74",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/74",
+                    "released": True,
+                },
+                {
+                    "id": "75",
+                    "name": "v5.1.1-b3h75",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/75",
+                    "released": True,
+                },
+                {
+                    "id": "76",
+                    "name": "v5.1.1-b3h76",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/76",
+                    "released": False,
+                },
+            ]
+        ),
+        FakeResponse(json_data={"id": "76"}),
+    )
+    client = JiraClient(
+        JiraConfig(
+            base_url="https://qa.example.com",
+            username="jira-user",
+            password="jira-pass",
+        ),
+        session=session,
+    )
+
+    result = client.ensure_version_exists(
+        project_id="10001",
+        version_name="5.1.1-b3h76",
+        before_version_name="v5.1.1-b3h75",
+    )
+
+    assert result.created is False
+    assert result.moved is True
+    assert result.move_action == "after"
+    assert result.move_reference == "v5.1.1-b3h75"
+    assert session.calls[1].url.endswith("/jira/rest/api/2/version/76/move")
+    assert session.calls[1].kwargs["json"] == {
+        "after": "https://qa.example.com/jira/rest/api/2/version/75"
+    }
+
+
+def test_preview_version_creation_reports_move_for_existing_version() -> None:
+    session = ScriptedSession(
+        FakeResponse(
+            json_data=[
+                {
+                    "id": "75",
+                    "name": "v5.1.1-b3h75",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/75",
+                    "released": True,
+                },
+                {
+                    "id": "76",
+                    "name": "v5.1.1-b3h76",
+                    "projectId": "10001",
+                    "self": "https://qa.example.com/jira/rest/api/2/version/76",
+                    "released": False,
+                },
+            ]
+        )
+    )
+    client = JiraClient(
+        JiraConfig(
+            base_url="https://qa.example.com",
+            username="jira-user",
+            password="jira-pass",
+        ),
+        session=session,
+    )
+
+    preview = client.preview_version_creation(
+        version_name="5.1.1-b3h76",
+        before_version_name="v5.1.1-b3h75",
+    )
+
+    assert preview["already_exists"] is True
+    assert preview["move_action"] == "after"
+    assert preview["move_reference"] == "v5.1.1-b3h75"

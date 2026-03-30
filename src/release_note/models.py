@@ -125,6 +125,7 @@ class CreateOrSkipResult:
     version_id: str | None = None
     move_action: str | None = None
     move_reference: str | None = None
+    moved: bool = False
 
 
 @dataclass

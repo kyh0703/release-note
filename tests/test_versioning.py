@@ -13,8 +13,15 @@ def test_parse_tagging_version_supports_leading_v_and_suffix() -> None:
     assert version.has_v_prefix is True
 
 
-def test_next_patch_drops_suffix_and_increments_patch() -> None:
-    version = TaggingVersion.parse("6.2.0-hotfix-h1")
+def test_next_patch_increments_suffix_trailing_number() -> None:
+    version = TaggingVersion.parse("v5.1.1-b3h75")
+
+    assert version.next_patch_name() == "v5.1.1-b3h76"
+    assert version.previous_patch == "v5.1.0"
+
+
+def test_next_patch_falls_back_to_semantic_patch_when_suffix_has_no_trailing_number() -> None:
+    version = TaggingVersion.parse("6.2.0-hotfix-final")
 
     assert version.next_patch_name() == "6.2.1"
     assert version.previous_patch is None
@@ -25,7 +32,7 @@ def test_render_exposes_template_values() -> None:
 
     rendered = version.render("IPRON v{raw} -> {next_patch} -> {tag_version}")
 
-    assert rendered == "IPRON v6.2.3-b4h19 -> 6.2.4 -> 6.2.3b4h19"
+    assert rendered == "IPRON v6.2.3-b4h19 -> 6.2.3-b4h20 -> 6.2.3b4h19"
 
 
 def test_invalid_tagging_version_raises() -> None:
@@ -43,5 +50,5 @@ def test_ordering_key_supports_natural_suffix_order() -> None:
 def test_next_patch_keeps_leading_v_prefix() -> None:
     version = TaggingVersion.parse("v5.1.1-b3h75")
 
-    assert version.next_patch_name() == "v5.1.2"
+    assert version.next_patch_name() == "v5.1.1-b3h76"
     assert version.previous_patch == "v5.1.0"

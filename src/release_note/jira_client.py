@@ -16,6 +16,8 @@ from .models import (
     ReleaseNoteBundle,
 )
 
+_JIRA_REQUEST_TIMEOUT_SECONDS = 90
+
 
 class _TextareaParser(HTMLParser):
     def __init__(self) -> None:
@@ -52,7 +54,7 @@ class JiraClient:
         response = self._send(
             "get",
             self._url(f"/jira/rest/api/2/project/{self.config.project_key}"),
-            timeout=30,
+            timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
         )
         payload = self._json(response)
         return JiraProject(
@@ -65,7 +67,7 @@ class JiraClient:
         response = self._send(
             "get",
             self._url(f"/jira/rest/api/2/project/{self.config.project_key}/versions"),
-            timeout=30,
+            timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
         )
         payload = self._json(response)
         return [self._parse_version(item) for item in payload]
@@ -108,7 +110,7 @@ class JiraClient:
                     "startAt": start_at,
                     "maxResults": 100,
                 },
-                timeout=30,
+                timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
             )
             payload = self._json(response)
             issue_items = payload.get("issues", [])
@@ -154,7 +156,7 @@ class JiraClient:
             "put",
             self._url(f"/jira/rest/api/2/version/{version.version_id}"),
             json={"released": True, "releaseDate": release_date},
-            timeout=30,
+            timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
         )
         self._json(response)
         return True
@@ -173,38 +175,53 @@ class JiraClient:
         )
         existing = self._find_matching_version(versions, desired_name)
         if existing is not None:
+            move_action = None
+            move_reference = None
+            moved = False
+            if before_version_name is not None:
+                move_action, move_reference, moved = self._move_version_after_current(
+                    version=existing,
+                    versions=versions,
+                    current_version_name=before_version_name,
+                )
             return CreateOrSkipResult(
                 created=False,
                 version_name=existing.name,
                 version_id=existing.version_id,
+                move_action=move_action,
+                move_reference=move_reference,
+                moved=moved,
             )
-        response = self._send(
-            "post",
-            self._url("/jira/rest/api/2/version"),
-            json={"name": desired_name, "project": self.config.project_key},
-            timeout=30,
-        )
-        payload = self._json(response)
-        created_version = self._parse_version(payload)
+        try:
+            response = self._send(
+                "post",
+                self._url("/jira/rest/api/2/version"),
+                json={"name": desired_name, "project": self.config.project_key},
+                timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
+            )
+            payload = self._json(response)
+            created_version = self._parse_version(payload)
+        except ApiError:
+            versions = self.list_versions()
+            created_version = self._find_matching_version(versions, desired_name)
+            if created_version is None:
+                raise
         move_action = None
         move_reference = None
+        moved = False
         if before_version_name is not None:
-            move_payload, move_action, move_reference = self._build_move_before_payload(
+            move_action, move_reference, moved = self._move_version_after_current(
+                version=created_version,
                 versions=versions,
-                before_version_name=before_version_name,
+                current_version_name=before_version_name,
             )
-            self._send(
-                "post",
-                self._url(f"/jira/rest/api/2/version/{created_version.version_id}/move"),
-                json=move_payload,
-                timeout=30,
-            ).raise_for_status()
         return CreateOrSkipResult(
             created=True,
             version_name=created_version.name,
             version_id=created_version.version_id,
             move_action=move_action,
             move_reference=move_reference,
+            moved=moved,
         )
 
     def preview_version_creation(
@@ -216,20 +233,20 @@ class JiraClient:
             before_version_name=before_version_name,
         )
         existing = self._find_matching_version(versions, desired_name)
+        move_action = None
+        move_reference = None
+        if before_version_name is not None:
+            _, move_action, move_reference = self._build_move_after_current_payload(
+                versions=versions,
+                current_version_name=before_version_name,
+            )
         if existing is not None:
             return {
                 "already_exists": True,
                 "version_name": existing.name,
-                "move_action": None,
-                "move_reference": None,
+                "move_action": move_action,
+                "move_reference": move_reference,
             }
-        move_action = None
-        move_reference = None
-        if before_version_name is not None:
-            _, move_action, move_reference = self._build_move_before_payload(
-                versions=versions,
-                before_version_name=before_version_name,
-            )
         return {
             "already_exists": False,
             "version_name": desired_name,
@@ -249,7 +266,7 @@ class JiraClient:
         response = self._send(
             "get",
             self._url(f"/jira/secure/ReleaseNote.jspa?{params}"),
-            timeout=30,
+            timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
         )
         try:
             response.raise_for_status()
@@ -315,6 +332,47 @@ class JiraClient:
             return {"after": predecessor.self_url}, "after", predecessor.name
         raise NotFoundError(
             f"Jira version '{before_version_name}' was not found for move planning."
+        )
+
+    def _move_version_after_current(
+        self,
+        *,
+        version: JiraVersion,
+        versions: list[JiraVersion],
+        current_version_name: str,
+    ) -> tuple[str, str, bool]:
+        move_payload, move_action, move_reference = self._build_move_after_current_payload(
+            versions=versions,
+            current_version_name=current_version_name,
+        )
+        response = self._send(
+            "post",
+            self._url(f"/jira/rest/api/2/version/{version.version_id}/move"),
+            json=move_payload,
+            timeout=_JIRA_REQUEST_TIMEOUT_SECONDS,
+        )
+        try:
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ApiError(f"Jira request failed: {exc}") from exc
+        return move_action, move_reference, True
+
+    def _build_move_after_current_payload(
+        self,
+        *,
+        versions: list[JiraVersion],
+        current_version_name: str,
+    ) -> tuple[dict[str, str], str, str]:
+        for version in versions:
+            if version.name != current_version_name:
+                continue
+            if version.self_url is None:
+                raise ApiError(
+                    f"Cannot move version after '{current_version_name}' without self link."
+                )
+            return {"after": version.self_url}, "after", version.name
+        raise NotFoundError(
+            f"Jira version '{current_version_name}' was not found for move planning."
         )
 
     def _find_matching_version(

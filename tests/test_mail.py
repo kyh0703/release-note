@@ -67,7 +67,7 @@ def test_smtp_client_sends_grouped_notifications() -> None:
     def smtp_factory(host: str, port: int, timeout: int) -> _FakeSmtpTransport:
         assert host == "smtp.example.com"
         assert port == 2525
-        assert timeout == 30
+        assert timeout == 90
         return transport
 
     client = SmtpClient(

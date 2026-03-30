@@ -9,6 +9,8 @@ from .config import ConfluenceConfig
 from .errors import ApiError, NotFoundError
 from .models import ConfluencePage
 
+_CONFLUENCE_REQUEST_TIMEOUT_SECONDS = 90
+
 
 class ConfluenceClient:
     def __init__(
@@ -67,7 +69,7 @@ class ConfluenceClient:
         try:
             response = self.session.get(
                 self._url(f"/wiki/rest/prototype/1/content/{page_id}"),
-                timeout=30,
+                timeout=_CONFLUENCE_REQUEST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
         except requests.RequestException as exc:
@@ -91,7 +93,7 @@ class ConfluenceClient:
                     "method": method,
                     "params": list(params),
                 },
-                timeout=30,
+                timeout=_CONFLUENCE_REQUEST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
         except requests.RequestException as exc:
